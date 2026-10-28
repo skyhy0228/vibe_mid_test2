@@ -20,8 +20,8 @@ def _is_valid_book(book_id):
 
 class LibraryLoan:
     def __init__(self):
-        self._loans = {}            # book_id -> (name, 빌린 날)
-        self._suspended_until = {}  # name -> 대출 정지 마지막 날(포함)
+        self._loans = {}        # book_id -> (name, 빌린 날)
+        self._suspensions = {}  # name -> [(정지 시작일, 정지 마지막 날)] (양 끝 포함)
 
     def borrow(self, book_id, name, day):
         if not (_is_valid_book(book_id) and _is_valid_name(name) and _is_valid_day(day)):
@@ -34,7 +34,8 @@ class LibraryLoan:
             return False
         if any(day > borrowed_day + LOAN_PERIOD for borrowed_day in my_loans):
             return False
-        if day <= self._suspended_until.get(name, 0):
+        # 겹치는 정지 기간은 합쳐진 구간처럼 동작한다 (기간을 더하지 않음)
+        if any(start <= day <= end for start, end in self._suspensions.get(name, [])):
             return False
 
         self._loans[book_id] = (name, day)
@@ -53,9 +54,8 @@ class LibraryLoan:
         overdue = max(0, day - (borrowed_day + LOAN_PERIOD))
         del self._loans[book_id]
         if overdue > 0:
-            # 반납한 날부터 연체 일수만큼 정지, 겹치면 더 늦게 끝나는 쪽
-            last_day = day + overdue - 1
-            self._suspended_until[name] = max(self._suspended_until.get(name, 0), last_day)
+            # 반납한 날부터 연체 일수만큼의 날 동안 대출 정지
+            self._suspensions.setdefault(name, []).append((day, day + overdue - 1))
         return overdue
 
     def get_loans(self, name):
