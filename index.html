@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>도서관 대출 시스템</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --card: #fffdf8;
+      --ink: #1f2a2e;
+      --muted: #66716f;
+      --line: #ddd6c8;
+      --accent: #2f5d50;
+      --accent-ink: #ffffff;
+      --ok: #1f7a4d;
+      --ok-bg: #e3f3ea;
+      --fail: #b3261e;
+      --fail-bg: #fbe5e3;
+      --focus: #d08a2c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+      line-height: 1.5;
+    }
+    main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+    header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.02em; }
+    header p { margin: 4px 0 0; color: var(--muted); font-size: 0.92rem; }
+
+    #status { padding: 10px 14px; border-radius: 10px; background: #fff4dc; border: 1px solid #ecd39c; margin-bottom: 16px; font-size: 0.95rem; }
+    #status.error { background: var(--fail-bg); border-color: #e9b4ae; color: var(--fail); }
+    #status[hidden] { display: none; }
+
+    #result {
+      border-radius: 14px;
+      border: 2px solid var(--line);
+      background: var(--card);
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      min-height: 96px;
+      display: flex; align-items: center; gap: 18px;
+    }
+    #result .badge { font-size: 2.4rem; font-weight: 800; letter-spacing: -0.03em; white-space: nowrap; }
+    #result .detail { font-size: 1.05rem; }
+    #result .detail small { display: block; color: var(--muted); font-size: 0.88rem; }
+    #result.ok { border-color: var(--ok); background: var(--ok-bg); }
+    #result.ok .badge { color: var(--ok); }
+    #result.fail { border-color: var(--fail); background: var(--fail-bg); }
+    #result.fail .badge { color: var(--fail); }
+    #result.idle .badge { color: var(--muted); font-size: 1.4rem; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+    section.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+    section.card h2 { margin: 0 0 12px; font-size: 1.15rem; }
+    label { display: block; font-size: 0.88rem; color: var(--muted); margin: 10px 0 4px; }
+    input {
+      width: 100%; padding: 10px 12px; font-size: 1rem;
+      border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
+    }
+    input:focus-visible, button:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+    button {
+      margin-top: 14px; width: 100%; padding: 11px 12px; font-size: 1rem; font-weight: 700;
+      border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-ink); cursor: pointer;
+    }
+    button:hover:not(:disabled) { filter: brightness(1.1); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.secondary { width: auto; margin: 0; padding: 8px 14px; background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 600; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 0.98rem; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
+    .empty { color: var(--muted); margin-top: 14px; font-size: 0.95rem; }
+
+    #history-card { margin-top: 16px; }
+    #history { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
+    #history li { display: flex; gap: 10px; padding: 7px 2px; border-bottom: 1px dashed var(--line); font-size: 0.93rem; }
+    #history .tag { font-weight: 700; min-width: 3.2em; }
+    #history .tag.ok { color: var(--ok); }
+    #history .tag.fail { color: var(--fail); }
+    .hint { color: var(--muted); font-size: 0.85rem; margin: 6px 0 0; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>도서관 대출 시스템</h1>
+      <p>책: B001 ~ B005 · 대출 기간 14일 · 날짜는 개관일부터 센 "며칠째"(정수)</p>
+    </div>
+    <button type="button" id="reset" class="secondary" disabled>처음 상태로 초기화</button>
+  </header>
+
+  <div id="status" role="status">대출 프로그램(solution.py)을 불러오는 중입니다… 처음에는 10초쯤 걸릴 수 있습니다.</div>
+
+  <div id="result" class="idle" aria-live="polite">
+    <div class="badge">대기 중</div>
+    <div class="detail">대출 또는 반납을 하면 결과가 여기에 크게 표시됩니다.</div>
+  </div>
+
+  <div class="grid">
+    <section class="card">
+      <h2>대출</h2>
+      <form id="borrow-form">
+        <label for="borrow-book">책 번호</label>
+        <input id="borrow-book" list="books" autocomplete="off" placeholder="예: B001">
+        <label for="borrow-name">이름</label>
+        <input id="borrow-name" autocomplete="off" placeholder="예: 김민수">
+        <label for="borrow-day">며칠째</label>
+        <input id="borrow-day" inputmode="numeric" autocomplete="off" placeholder="예: 1">
+        <button type="submit" disabled>대출하기</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>반납</h2>
+      <form id="return-form">
+        <label for="return-book">책 번호</label>
+        <input id="return-book" list="books" autocomplete="off" placeholder="예: B001">
+        <label for="return-name">이름</label>
+        <input id="return-name" autocomplete="off" placeholder="예: 김민수">
+        <label for="return-day">며칠째</label>
+        <input id="return-day" inputmode="numeric" autocomplete="off" placeholder="예: 10">
+        <button type="submit" disabled>반납하기</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>대출 목록</h2>
+      <form id="loans-form">
+        <label for="loans-name">이름</label>
+        <input id="loans-name" autocomplete="off" placeholder="예: 김민수">
+        <button type="submit" disabled>목록 보기</button>
+      </form>
+      <div id="loans-output"></div>
+    </section>
+  </div>
+
+  <section class="card" id="history-card">
+    <h2>처리 기록</h2>
+    <ul id="history"></ul>
+    <p class="hint" id="history-empty">아직 기록이 없습니다.</p>
+  </section>
+
+  <datalist id="books">
+    <option value="B001"><option value="B002"><option value="B003"><option value="B004"><option value="B005">
+  </datalist>
+</main>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<script>
+  // 대출 규칙은 전부 solution.py의 LibraryLoan이 판단한다. 이 페이지는 입력을 전달하고 결과만 보여준다.
+  const GLUE = `
+import solution
+
+lib = solution.LibraryLoan()
+
+def to_day(text):
+    # 입력 글자를 숫자로만 바꿔서 넘긴다. 유효한 날짜인지는 solution.py가 판단한다.
+    text = text.strip()
+    for convert in (int, float):
+        try:
+            return convert(text)
+        except ValueError:
+            pass
+    return text
+
+def do_borrow(book_id, name, day):
+    return lib.borrow(book_id, name, to_day(day))
+
+def do_return(book_id, name, day):
+    return lib.return_book(book_id, name, to_day(day))
+
+def do_loans(name):
+    return [[book_id, due] for book_id, due in lib.get_loans(name)]
+
+def do_reset():
+    global lib
+    lib = solution.LibraryLoan()
+`;
+
+  const $ = (id) => document.getElementById(id);
+  let py = null;
+
+  function cleanBook(value) { return value.trim().toUpperCase(); }
+  function cleanName(value) { return value.trim(); }
+
+  function showResult(ok, title, detail, sub) {
+    const box = $("result");
+    box.className = ok ? "ok" : "fail";
+    box.innerHTML = "";
+    const badge = document.createElement("div");
+    badge.className = "badge";
+    badge.textContent = ok ? "성공" : "실패";
+    const text = document.createElement("div");
+    text.className = "detail";
+    text.textContent = title + " — " + detail;
+    if (sub) {
+      const small = document.createElement("small");
+      small.textContent = sub;
+      text.appendChild(small);
+    }
+    box.append(badge, text);
+    // 휴대폰에서는 결과 칸이 화면 밖에 있을 수 있으므로 보이게 한다.
+    box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    addHistory(ok, title + " · " + detail);
+  }
+
+  function addHistory(ok, text) {
+    const li = document.createElement("li");
+    const tag = document.createElement("span");
+    tag.className = "tag " + (ok ? "ok" : "fail");
+    tag.textContent = ok ? "성공" : "실패";
+    const body = document.createElement("span");
+    body.textContent = text;
+    li.append(tag, body);
+    $("history").prepend(li);
+    $("history-empty").hidden = true;
+  }
+
+  function renderLoans(name) {
+    const out = $("loans-output");
+    out.innerHTML = "";
+    const loans = py.do_loans(name).toJs();
+    if (loans.length === 0) {
+      const p = document.createElement("p");
+      p.className = "empty";
+      p.textContent = (name || "(빈 이름)") + " 님이 빌린 책이 없습니다.";
+      out.appendChild(p);
+      return;
+    }
+    const table = document.createElement("table");
+    table.innerHTML = "<caption class='hint' style='text-align:left'></caption><thead><tr><th>책 번호</th><th>반납 기한</th></tr></thead><tbody></tbody>";
+    table.querySelector("caption").textContent = name + " 님의 대출 목록 (반납 기한 순)";
+    const tbody = table.querySelector("tbody");
+    for (const [bookId, due] of loans) {
+      const tr = document.createElement("tr");
+      const td1 = document.createElement("td");
+      td1.textContent = bookId;
+      const td2 = document.createElement("td");
+      td2.textContent = due + "일째까지";
+      tr.append(td1, td2);
+      tbody.appendChild(tr);
+    }
+    out.appendChild(table);
+  }
+
+  // 대출·반납 후, 목록에 같은 사람이 떠 있으면 목록을 새로 고친다.
+  function refreshLoansFor(name) {
+    if ($("loans-output").dataset.name === name) renderLoans(name);
+  }
+
+  function handle(formId, fn) {
+    $(formId).addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!py) return;
+      try {
+        fn();
+      } catch (err) {
+        console.error(err);
+        showResult(false, "처리 중 오류", String(err.message || err).split("\n").slice(-2).join(" "));
+      }
+    });
+  }
+
+  handle("borrow-form", () => {
+    const book = cleanBook($("borrow-book").value);
+    const name = cleanName($("borrow-name").value);
+    const day = $("borrow-day").value;
+    const ok = py.do_borrow(book, name, day);
+    const detail = `${name || "(빈 이름)"} · ${book || "(빈 책 번호)"} · ${day.trim() || "(빈 날짜)"}일째`;
+    showResult(ok === true, ok ? "대출 성공" : "대출 실패", detail, ok ? "" : "대출이 거절되었습니다.");
+    refreshLoansFor(name);
+  });
+
+  handle("return-form", () => {
+    const book = cleanBook($("return-book").value);
+    const name = cleanName($("return-name").value);
+    const day = $("return-day").value;
+    const overdue = py.do_return(book, name, day);
+    const detail = `${name || "(빈 이름)"} · ${book || "(빈 책 번호)"} · ${day.trim() || "(빈 날짜)"}일째`;
+    if (overdue === -1) {
+      showResult(false, "반납 실패", detail, "반납이 거절되었습니다.");
+    } else {
+      showResult(true, `반납 성공 · 연체 ${overdue}일`, detail, overdue > 0 ? `연체 ${overdue}일 — 반납한 날부터 ${overdue}일 동안 대출 정지` : "기한 안에 반납했습니다.");
+    }
+    refreshLoansFor(name);
+  });
+
+  handle("loans-form", () => {
+    const name = cleanName($("loans-name").value);
+    $("loans-output").dataset.name = name;
+    renderLoans(name);
+  });
+
+  $("reset").addEventListener("click", () => {
+    if (!py || !confirm("모든 대출 기록을 지우고 처음 상태로 되돌릴까요?")) return;
+    py.do_reset();
+    $("loans-output").innerHTML = "";
+    delete $("loans-output").dataset.name;
+    $("history").innerHTML = "";
+    $("history-empty").hidden = false;
+    const box = $("result");
+    box.className = "idle";
+    box.innerHTML = '<div class="badge">초기화됨</div><div class="detail">아무도 책을 빌리지 않은 처음 상태입니다.</div>';
+  });
+
+  async function start() {
+    try {
+      const pyodide = await loadPyodide();
+      const res = await fetch("solution.py?v=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) throw new Error("solution.py를 불러오지 못했습니다 (HTTP " + res.status + ")");
+      pyodide.FS.writeFile("/home/pyodide/solution.py", await res.text());
+      pyodide.runPython("import sys\nif '/home/pyodide' not in sys.path: sys.path.insert(0, '/home/pyodide')");
+      pyodide.runPython(GLUE);
+      const g = pyodide.globals;
+      py = {
+        do_borrow: g.get("do_borrow"),
+        do_return: g.get("do_return"),
+        do_loans: g.get("do_loans"),
+        do_reset: g.get("do_reset"),
+      };
+      document.querySelectorAll("button").forEach((b) => (b.disabled = false));
+      $("status").hidden = true;
+    } catch (err) {
+      console.error(err);
+      $("status").className = "error";
+      $("status").textContent = "불러오기 실패: " + (err.message || err) + " — 새로고침해 보세요.";
+    }
+  }
+  start();
+</script>
+</body>
+</html>
